@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   Award,
   BarChart2,
   Calendar,
@@ -8,6 +9,7 @@ import {
   Coffee,
   DatabaseBackup,
   Headphones,
+  Layers3,
   Home,
   Info,
   Instagram,
@@ -62,11 +64,13 @@ interface ArcWheelMenuProps {
   onOpenBackup: () => void;
   onOpenAbout: () => void;
   onResetData: () => void;
+  /** بعداً به آدرس واقعی وصل می‌شود */
   telegramUrl?: string;
   instagramUrl?: string;
 }
 
-export const ARC_MENU_ITEMS: ArcMenuItem[] = [
+/** همه‌ی بخش‌های برنامه در یک منو — منوی کشویی قدیمی حذف شده است */
+const ARC_MENU_ITEMS_BASE: ArcMenuItem[] = [
   {
     id: 'home',
     labelFa: 'خانه',
@@ -75,6 +79,15 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
     bgLight: '#e0f2fe',
     actionType: 'tab',
     targetTab: 'home',
+  },
+  {
+    id: 'flashcards',
+    labelFa: 'فلش‌کارت‌ها',
+    icon: Layers3,
+    color: '#7c3aed',
+    bgLight: '#f3e8ff',
+    actionType: 'tab',
+    targetTab: 'flashcards',
   },
   {
     id: 'planner',
@@ -86,13 +99,22 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
     targetTab: 'planner',
   },
   {
-    id: 'power_study',
-    labelFa: 'مطالعه پرفشار',
-    icon: Zap,
-    color: '#f43f5e',
-    bgLight: '#fff1f2',
-    actionType: 'focus_subject',
-    subjectName: 'مطالعه مفهومی',
+    id: 'schedule',
+    labelFa: 'زمان‌بندی مطالعه',
+    icon: Clock,
+    color: '#6d5dfb',
+    bgLight: '#eeecff',
+    actionType: 'tab',
+    targetTab: 'schedule',
+  },
+  {
+    id: 'advisors',
+    labelFa: 'مشاوره و مدرسان',
+    icon: Award,
+    color: '#f97316',
+    bgLight: '#fff1e8',
+    actionType: 'tab',
+    targetTab: 'advisors',
   },
   {
     id: 'drill',
@@ -105,7 +127,7 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
   {
     id: 'focus',
-    labelFa: 'تایمر',
+    labelFa: 'تایمر پومودورو',
     icon: Clock,
     color: '#06b6d4',
     bgLight: '#ecfeff',
@@ -114,7 +136,7 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
   {
     id: 'break',
-    labelFa: 'استراحت',
+    labelFa: 'استراحت و تحرک',
     icon: Coffee,
     color: '#f97316',
     bgLight: '#fff7ed',
@@ -122,7 +144,7 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
   {
     id: 'manual_log',
-    labelFa: 'ثبت دستی',
+    labelFa: 'ثبت مطالعه',
     icon: PenLine,
     color: '#8b5cf6',
     bgLight: '#f5f3ff',
@@ -130,7 +152,7 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
   {
     id: 'exams',
-    labelFa: 'آزمون‌ها',
+    labelFa: 'آزمون آزمایشی',
     icon: Award,
     color: '#a855f7',
     bgLight: '#faf5ff',
@@ -139,16 +161,16 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
   {
     id: 'progress',
-    labelFa: 'پیشرفت',
+    labelFa: 'کارنامه و تراز',
     icon: BarChart2,
     color: '#22c55e',
     bgLight: '#f0fdf4',
     actionType: 'tab',
-    targetTab: 'progress',
+    targetTab: 'report',
   },
   {
     id: 'sounds',
-    labelFa: 'صدا‌ها',
+    labelFa: 'صداهای تمرکز',
     icon: Headphones,
     color: '#6366f1',
     bgLight: '#eef2ff',
@@ -156,7 +178,7 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
   {
     id: 'profile',
-    labelFa: 'پروفایل',
+    labelFa: 'پروفایل من',
     icon: User,
     color: '#eab308',
     bgLight: '#fefce8',
@@ -172,7 +194,7 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
   {
     id: 'about',
-    labelFa: 'درباره',
+    labelFa: 'درباره‌ی برنامه',
     icon: Info,
     color: '#64748b',
     bgLight: '#f1f5f9',
@@ -180,7 +202,7 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
   {
     id: 'reset',
-    labelFa: 'پاک‌سازی',
+    labelFa: 'پاک کردن داده‌ها',
     icon: Trash2,
     color: '#ef4444',
     bgLight: '#fef2f2',
@@ -188,8 +210,12 @@ export const ARC_MENU_ITEMS: ArcMenuItem[] = [
   },
 ];
 
+const MENU_PRIORITY = ['home','planner','focus','schedule','manual_log','drill','progress','exams','flashcards','advisors','break','sounds','profile','backup','about','reset'];
+export const ARC_MENU_ITEMS: ArcMenuItem[] = [...ARC_MENU_ITEMS_BASE].sort((a,b)=>MENU_PRIORITY.indexOf(a.id)-MENU_PRIORITY.indexOf(b.id));
+
 const pad2 = (value: number) => toPersianDigits(String(Math.max(0, value)).padStart(2, '0'));
 
+/** شمارش معکوس تا روز کنکور روی تصویر زمین */
 const EarthCountdown: React.FC<{ targetIso: string; onPress: () => void }> = ({
   targetIso,
   onPress,
@@ -247,12 +273,34 @@ const EarthCountdown: React.FC<{ targetIso: string; onPress: () => void }> = ({
         </span>
       ) : (
         <span className="relative flex flex-col items-center justify-center h-full text-white">
-          <span className="text-[12px] font-black">تاریخ نامشخص</span>
+          <span className="text-[12px] font-black">تاریخ کنکور تعیین نشده</span>
+          <span className="text-[10px] font-bold text-white/70 mt-0.5">
+            برای تنظیم لمس کنید
+          </span>
         </span>
       )}
     </button>
   );
 };
+
+const RailButton: React.FC<{
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  tone?: string;
+}> = ({ label, onClick, children, tone }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={label}
+    aria-label={label}
+    className={`w-9 h-9 rounded-2xl flex items-center justify-center active:scale-90 transition-all ${
+      tone ?? 'bg-slate-50 text-slate-500 hover:text-slate-800'
+    }`}
+  >
+    {children}
+  </button>
+);
 
 export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
   isOpen,
@@ -272,18 +320,100 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
   telegramUrl = '#',
   instagramUrl = '#',
 }) => {
-  const [selectedIndex, setSelectedIndex] = useState(Math.floor(ARC_MENU_ITEMS.length / 2));
-  const [scrollOffset, setScrollOffset] = useState(selectedIndex);
+  const itemsCount = ARC_MENU_ITEMS.length;
+  const middleIndex = Math.floor(itemsCount / 2);
+
+  const [selectedIndex, setSelectedIndex] = useState(middleIndex);
+  const [scrollOffset, setScrollOffset] = useState(middleIndex);
   const [isDragging, setIsDragging] = useState(false);
-  const [showExitDialog, setShowExitDialog] = useState(false);
 
   const wheelAreaRef = useRef<HTMLDivElement | null>(null);
   const [wheelDims, setWheelDims] = useState({ width: 375, height: 560 });
 
+  const dragStartY = useRef(0);
   const dragStartX = useRef(0);
   const dragStartOffset = useRef(0);
-  const tapCount = useRef(0);
-  const tapTimer = useRef<NodeJS.Timeout | null>(null);
+  const dragDistance = useRef(0);
+
+  /* ---------------------------------------------------------------- */
+  /* کشیدن به سمت راست برای بستن منو                                   */
+  /* حرکت عمودی گزینه‌ها دست‌نخورده می‌ماند: محور حرکت قفل می‌شود        */
+  /* ---------------------------------------------------------------- */
+  const SWIPE_CLOSE_PX = 96;
+  const [dragX, setDragX] = useState(0);
+  const [isSwipeDragging, setIsSwipeDragging] = useState(false);
+  const [isSwipingOut, setIsSwipingOut] = useState(false);
+  const swipeActive = useRef(false);
+  const swipeStart = useRef({ x: 0, y: 0 });
+  const gestureAxis = useRef<'none' | 'x' | 'y'>('none');
+  const dragXRef = useRef(0);
+  const closeTimer = useRef<number | null>(null);
+
+  const setDrag = (value: number) => {
+    dragXRef.current = value;
+    setDragX(value);
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      setDrag(0);
+      setIsSwipeDragging(false);
+      setIsSwipingOut(false);
+      swipeActive.current = false;
+      gestureAxis.current = 'none';
+    }
+    return () => {
+      if (closeTimer.current !== null) {
+        window.clearTimeout(closeTimer.current);
+        closeTimer.current = null;
+      }
+    };
+  }, [isOpen]);
+
+  const handleSheetPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isSwipingOut) return;
+    swipeActive.current = true;
+    gestureAxis.current = 'none';
+    swipeStart.current = { x: event.clientX, y: event.clientY };
+    setDrag(0);
+  };
+
+  const handleSheetPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!swipeActive.current) return;
+    const deltaX = event.clientX - swipeStart.current.x;
+    const deltaY = event.clientY - swipeStart.current.y;
+
+    if (gestureAxis.current === 'none' && (Math.abs(deltaX) > 12 || Math.abs(deltaY) > 12)) {
+      gestureAxis.current = Math.abs(deltaX) > Math.abs(deltaY) * 1.5 ? 'x' : 'y';
+      if (gestureAxis.current === 'x') {
+        setIsSwipeDragging(true);
+        // قوس سر جای خودش می‌ماند؛ این حرکت فقط بستن منو است
+        setScrollOffset(selectedIndex);
+      }
+    }
+
+    if (gestureAxis.current !== 'x') return;
+    setDrag(Math.max(0, deltaX));
+  };
+
+  const handleSheetPointerUp = () => {
+    if (!swipeActive.current) return;
+    swipeActive.current = false;
+    const shouldClose = gestureAxis.current === 'x' && dragXRef.current > SWIPE_CLOSE_PX;
+    gestureAxis.current = 'none';
+    setIsSwipeDragging(false);
+
+    if (shouldClose) {
+      setIsSwipingOut(true);
+      closeTimer.current = window.setTimeout(() => {
+        closeTimer.current = null;
+        onClose();
+      }, 190);
+      return;
+    }
+
+    setDrag(0);
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -294,19 +424,28 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
       }
     };
     updateSize();
+    const raf = window.requestAnimationFrame(updateSize);
     window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener('resize', updateSize);
+    };
   }, [isOpen]);
 
   useEffect(() => {
     if (!isDragging) setScrollOffset(selectedIndex);
   }, [selectedIndex, isDragging]);
 
+  /* ---------------------------------------------------------------- */
+  /* هندسه‌ی قوس — قوس کوچک‌تر و بازتر تا همه‌ی گزینه‌ها در کادر جا شوند */
+  /* ---------------------------------------------------------------- */
+  // نیم‌ارتفاع قابل استفاده و برآمدگی افقی قوس؛ شعاع از همین دو به دست می‌آید
+  // تا هم همه‌ی گزینه‌ها در کادر جا شوند و هم قوس از لبه‌ی صفحه بیرون نزند.
   const halfHeight = Math.max(120, wheelDims.height / 2 - 26);
   const bulge = Math.max(70, wheelDims.width * 0.34);
   const radius = (halfHeight * halfHeight + bulge * bulge) / (2 * bulge);
   const maxAngleDeg = (Math.asin(Math.min(1, halfHeight / radius)) * 180) / Math.PI;
-  const itemAngleStep = (2 * maxAngleDeg) / Math.max(1, ARC_MENU_ITEMS.length - 1);
+  const itemAngleStep = (2 * maxAngleDeg) / Math.max(1, itemsCount - 1);
   const spacing = (itemAngleStep * Math.PI * radius) / 180;
   const apexX = wheelDims.width * 0.56;
   const arcCenterX = apexX + radius;
@@ -314,21 +453,30 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     setIsDragging(true);
+    dragStartY.current = event.clientY;
     dragStartX.current = event.clientX;
     dragStartOffset.current = scrollOffset;
+    dragDistance.current = 0;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
-      // ignore
+      // بی‌اهمیت
     }
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!isDragging) return;
+    const deltaY = event.clientY - dragStartY.current;
     const deltaX = event.clientX - dragStartX.current;
-    const deltaItems = deltaX / Math.max(28, spacing);
-    const newOffset = dragStartOffset.current + deltaItems;
-    setScrollOffset(Math.max(-0.4, Math.min(ARC_MENU_ITEMS.length - 0.6, newOffset)));
+    dragDistance.current = Math.max(
+      dragDistance.current,
+      Math.abs(deltaY),
+      Math.abs(deltaX),
+    );
+    // کشیدن افقی کار بستن منو است، نه چرخاندن قوس
+    if (gestureAxis.current === 'x') return;
+    const newOffset = dragStartOffset.current + -deltaY / Math.max(28, spacing);
+    setScrollOffset(Math.max(-0.4, Math.min(itemsCount - 0.6, newOffset)));
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -337,38 +485,17 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
-      // ignore
+      // بی‌اهمیت
     }
     const nearest = Math.round(scrollOffset);
-    const finalIndex = Math.max(0, Math.min(ARC_MENU_ITEMS.length - 1, nearest));
+    const finalIndex = Math.max(0, Math.min(itemsCount - 1, nearest));
     setSelectedIndex(finalIndex);
     setScrollOffset(finalIndex);
   };
 
-  // سوایپ به راست (swipe right to close/go back)
-  const handleSwipeRight = () => {
-    if (scrollOffset < 0.5) {
-      // اولین آیتم: بپرس "خارج میشوید؟"
-      handleTripleTap();
-    } else {
-      // یکی برگرده
-      const newIndex = selectedIndex - 1;
-      setSelectedIndex(Math.max(0, newIndex));
-    }
-  };
-
-  const handleTripleTap = () => {
-    tapCount.current += 1;
-    if (tapCount.current === 1) {
-      if (tapTimer.current) clearTimeout(tapTimer.current);
-      tapTimer.current = setTimeout(() => {
-        tapCount.current = 0;
-      }, 500);
-    } else if (tapCount.current === 3) {
-      tapCount.current = 0;
-      if (tapTimer.current) clearTimeout(tapTimer.current);
-      setShowExitDialog(true);
-    }
+  const handleWheel = (event: React.WheelEvent) => {
+    const delta = event.deltaY > 0 ? 1 : -1;
+    setSelectedIndex((prev) => Math.max(0, Math.min(itemsCount - 1, prev + delta)));
   };
 
   const handleExecuteAction = (item: ArcMenuItem) => {
@@ -381,6 +508,7 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
         break;
       case 'focus_subject':
         if (item.subjectName) onStartFocusSubject(item.subjectName);
+        else onNavigateTab('focus');
         break;
       case 'break':
         onStartFocusSubject('استراحت و تنفس');
@@ -416,59 +544,45 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
       onClick={onClose}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={handleSheetPointerDown}
+        onPointerMove={handleSheetPointerMove}
+        onPointerUp={handleSheetPointerUp}
+        onPointerCancel={handleSheetPointerUp}
         className="w-full max-w-md h-full bg-[#f4f5f8] relative overflow-hidden flex flex-col select-none touch-none shadow-2xl"
+        style={{
+          transform: isSwipingOut ? 'translateX(110%)' : `translateX(${dragX}px)`,
+          opacity: isSwipingOut ? 0 : 1,
+          transition: isSwipeDragging
+            ? 'none'
+            : 'transform 200ms ease-out, opacity 200ms ease-out',
+        }}
       >
-        {/* ریل سمت چپ */}
+        {/* ریل سمت چپ: بستن، تنظیمات، تم */}
         <div className="absolute left-3 safe-sheet-top z-30 flex flex-col gap-2">
           <div className="bg-white rounded-3xl p-1.5 border border-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.07)]">
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="بستن"
-              className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center active:scale-90 transition-all"
-            >
+            <RailButton label="بستن منو" onClick={onClose}>
               <X className="w-4 h-4" />
-            </button>
+            </RailButton>
           </div>
 
           <div className="bg-white rounded-3xl p-1.5 border border-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.07)] flex flex-col gap-1">
-            <button
-              type="button"
-              onClick={onToggleTheme}
-              className="w-9 h-9 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center active:scale-90 transition-all"
-            >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-            <button
-              type="button"
+            <RailButton
+              label="تنظیمات"
               onClick={() => {
                 onOpenSettings();
                 onClose();
               }}
-              className="w-9 h-9 rounded-2xl bg-slate-50 text-slate-500 flex items-center justify-center active:scale-90 transition-all"
             >
               <Settings className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="bg-white rounded-3xl p-1.5 border border-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.07)] flex flex-col gap-1">
-            <a
-              href={telegramUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="w-9 h-9 rounded-2xl bg-sky-50 text-sky-500 flex items-center justify-center active:scale-90 transition-all"
+            </RailButton>
+            <RailButton
+              label={theme === 'dark' ? 'تم روشن' : 'تم تاریک'}
+              onClick={onToggleTheme}
+              tone="bg-amber-50 text-amber-500"
             >
-              <Send className="w-4 h-4" />
-            </a>
-            <a
-              href={instagramUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="w-9 h-9 rounded-2xl bg-pink-50 text-pink-500 flex items-center justify-center active:scale-90 transition-all"
-            >
-              <Instagram className="w-4 h-4" />
-            </a>
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </RailButton>
           </div>
         </div>
 
@@ -479,8 +593,10 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onWheel={handleWheel}
           className="relative flex-1 w-full overflow-hidden cursor-grab active:cursor-grabbing"
         >
+          {/* خط راهنمای قوس */}
           <svg
             className="absolute inset-0 w-full h-full pointer-events-none"
             viewBox={`0 0 ${wheelDims.width} ${wheelDims.height}`}
@@ -495,6 +611,7 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
             />
           </svg>
 
+          {/* نشانگر تیره روی قوس */}
           <div
             className="absolute z-20 pointer-events-none"
             style={{ left: `${apexX - 12}px`, top: `${arcCenterY - 5}px` }}
@@ -518,11 +635,13 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
                 <div
                   key={item.id}
                   onClick={() => {
-                    if (isSelected) handleExecuteAction(item);
-                    else {
-                      setSelectedIndex(index);
-                      setScrollOffset(index);
+                    if (dragDistance.current > 8) return;
+                    if (isSelected) {
+                      handleExecuteAction(item);
+                      return;
                     }
+                    setSelectedIndex(index);
+                    setScrollOffset(index);
                   }}
                   className="absolute pointer-events-auto cursor-pointer flex items-center transition-transform duration-75 ease-out"
                   style={{
@@ -535,19 +654,19 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
                 >
                   <div className="flex items-center gap-2 mr-3">
                     {isSelected ? (
-                      <div className="bg-white px-3 py-1.5 rounded-full shadow-[0_4px_16px_rgba(15,23,42,0.09)] border border-slate-100">
-                        <span className="text-[13px] font-black text-slate-900 whitespace-nowrap">
+                      <div className="bg-white px-4 py-2 rounded-full shadow-[0_4px_16px_rgba(15,23,42,0.09)] border border-slate-100 flex items-center gap-2">
+                        <span className="text-[14px] font-black text-slate-900 whitespace-nowrap">
                           {item.labelFa}
                         </span>
                       </div>
                     ) : (
-                      <span className="text-[12px] font-bold text-slate-400 whitespace-nowrap">
+                      <span className="text-[12.5px] font-bold text-slate-400 whitespace-nowrap">
                         {item.labelFa}
                       </span>
                     )}
                   </div>
 
-                  <div>
+                  <div className="relative flex items-center justify-center">
                     {isSelected ? (
                       <div
                         className="px-3.5 py-1.5 rounded-full flex items-center justify-center shadow-xs"
@@ -573,64 +692,54 @@ export const ArcWheelMenu: React.FC<ArcWheelMenuProps> = ({
           </div>
         </div>
 
-        {/* پایین */}
+        {/* پایین منو: شمارش معکوس روی تصویر زمین + دکمه‌ی «بزن بریم» + شبکه‌های اجتماعی */}
         <div className="relative z-20 px-4 pt-2 safe-sheet-bottom">
-          <div className="bg-white rounded-[26px] p-2.5 border border-slate-100 shadow-[0_10px_30px_rgba(15,23,42,0.08)] flex items-center gap-2.5">
-            <EarthCountdown
-              targetIso={profile.examTargetDate}
-              onPress={() => {
-                onOpenSettings();
-                onClose();
-              }}
-            />
-
-            <button
-              type="button"
-              onClick={() => handleExecuteAction(activeItem)}
-              className="px-3 h-[64px] rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-[12px] flex items-center gap-1 shadow-[0_8px_20px_rgba(251,191,36,0.45)] active:scale-95 transition-all shrink-0"
-            >
-              <span>شروع</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Dialog خروج */}
-      {showExitDialog && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-900/70 flex items-center justify-center animate-in fade-in duration-150"
-          onClick={() => setShowExitDialog(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm mx-4 animate-in scale-in-95 duration-200"
-          >
-            <h2 className="text-lg font-black text-slate-800 mb-2">خارج میشوید؟</h2>
-            <p className="text-sm text-slate-600 mb-5">
-              همه‌ی پیشرفتت ذخیره می‌شود. می‌تونی بعداً برگردی و ادامه بدی.
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setShowExitDialog(false)}
-                className="flex-1 py-2.5 rounded-2xl bg-slate-100 text-slate-600 font-bold text-sm active:scale-95"
-              >
-                نه، ادامه می‌دم
-              </button>
-              <button
-                type="button"
-                onClick={() => {
+          <div className="bg-white rounded-[26px] p-2.5 border border-slate-100 shadow-[0_10px_30px_rgba(15,23,42,0.08)] flex flex-col gap-2">
+            <div className="flex items-center gap-2.5">
+              <EarthCountdown
+                targetIso={profile.examTargetDate}
+                onPress={() => {
+                  onOpenSettings();
                   onClose();
-                  setShowExitDialog(false);
                 }}
-                className="flex-1 py-2.5 rounded-2xl bg-rose-600 text-white font-bold text-sm active:scale-95"
+              />
+
+              <button
+                type="button"
+                onClick={() => handleExecuteAction(activeItem)}
+                className="px-4 h-[64px] rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-[13px] flex items-center gap-1.5 shadow-[0_8px_20px_rgba(251,191,36,0.45)] active:scale-95 transition-all shrink-0"
               >
-                بله، خارج میشم
+                <span>بزن بریم</span>
+                <ArrowLeft className="w-4 h-4 stroke-[2.6]" />
               </button>
+            </div>
+
+            {/* زیر شمارش معکوس: تلگرام و اینستاگرام — فلت و خاکستری */}
+            <div className="flex items-center justify-center gap-2">
+              <a
+                href={telegramUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="کانال تلگرام"
+                aria-label="کانال تلگرام"
+                className="w-10 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center active:scale-90 transition-all"
+              >
+                <Send className="w-[17px] h-[17px]" />
+              </a>
+              <a
+                href={instagramUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="پیج اینستاگرام"
+                aria-label="پیج اینستاگرام"
+                className="w-10 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center active:scale-90 transition-all"
+              >
+                <Instagram className="w-[17px] h-[17px]" />
+              </a>
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };

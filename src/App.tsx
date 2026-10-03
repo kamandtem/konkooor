@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AmbientSoundId,
   AppBackup,
   MockExam,
   NavTab,
+  SessionExtra,
   StudySession,
   SubjectItem,
   TaskItem,
+  NoteItem,
   TestDrill,
   UserProfile,
 } from './types/konkur';
@@ -29,10 +31,16 @@ import {
   saveSessions,
   saveSubjects,
   saveTasks,
+  loadNotes,
+  saveNotes,
 } from './utils/storage';
 import {
   calculateDaysRemaining,
   calculateProgressPercentage,
+  currentTimeMinutes,
+  jalaliKeyToIso,
+  minutesToTime,
+  timeToMinutes,
   toLocalIso,
   todayJalaliKey,
 } from './utils/jalali';
@@ -43,6 +51,7 @@ import {
   tasksForDay,
 } from './utils/stats';
 import { soundEngine } from './utils/soundEngine';
+import { celebrateAchievement } from './utils/celebrate';
 
 import { applyTheme, loadTheme, saveTheme, ThemeMode } from './utils/theme';
 
@@ -52,22 +61,27 @@ import { ArcWheelMenu } from './components/ArcWheelMenu';
 import { BackupModal } from './components/BackupModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { CountdownDial } from './components/CountdownDial';
-import { CountdownRenderer } from './components/CountdownStyles';
 import { ExamsView } from './components/ExamsView';
 import { FocusTimer } from './components/FocusTimer';
 import { Header, HeaderNotification } from './components/Header';
 import { HomeTimeline } from './components/HomeTimeline';
 import { ManualLogModal } from './components/ManualLogModal';
 import { Navbar } from './components/Navbar';
-import { QuickActionMenu } from './components/QuickActionMenu';
 import { OnboardingScreen } from './components/OnboardingScreen';
-import { PlannerView } from './components/PlannerView';
+import { CalendarView } from './components/CalendarView';
 import { ProfileModal } from './components/ProfileModal';
 import { ProgressView } from './components/ProgressView';
+import { ReportCardView } from './components/ReportCardView';
+import { QuickActionMenu } from './components/QuickActionMenu';
 import { SettingsModal } from './components/SettingsModal';
 import { SpeedDrillView } from './components/SpeedDrillView';
-import { StatCards } from './components/StatCards';
 import { UpcomingExamCard } from './components/UpcomingExamCard';
+import { StudyHallView } from './features/studyHall/StudyHallView';
+import { StudyScheduleView } from './components/StudyScheduleView';
+import { AdvisorsView } from './components/AdvisorsView';
+import { NotesView } from './components/NotesView';
+import { FlashcardsView } from './components/FlashcardsView';
+import { HomeUpdates, MotivationStrip } from './components/HomeUpdates';
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -86,19 +100,27 @@ export default function App() {
   const [sessions, setSessions] = useState<StudySession[]>([]);
   const [exams, setExams] = useState<MockExam[]>([]);
   const [drills, setDrills] = useState<TestDrill[]>([]);
+  const [notes, setNotes] = useState<NoteItem[]>([]);
 
   const [currentTab, setCurrentTab] = useState<NavTab>('home');
+  const navigationStackRef = useRef<NavTab[]>([]);
   const [preselectedFocusSubject, setPreselectedFocusSubject] = useState<string | undefined>();
 
   const [isArcMenuOpen, setIsArcMenuOpen] = useState(false);
+  const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
+  // با دکمه‌ی + نوار پایین، فرم مربوطه در صفحه‌ی مقصد خودکار باز می‌شود
+  const [autoOpenAddTask, setAutoOpenAddTask] = useState(false);
+  const [autoOpenAddExam, setAutoOpenAddExam] = useState(false);
+  const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSoundsOpen, setIsSoundsOpen] = useState(false);
-  const [isQuickActionOpen, setIsQuickActionOpen] = useState(false);
   const [isManualLogOpen, setIsManualLogOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
+  const lastBackPressRef = useRef(0);
 
   const [currentSound, setCurrentSound] = useState<AmbientSoundId>('none');
   const [theme, setTheme] = useState<ThemeMode>('light');
@@ -134,6 +156,7 @@ export default function App() {
     setSessions(loadSessions());
     setExams(loadExams());
     setDrills(loadDrills());
+    setNotes(loadNotes());
     setIsHydrated(true);
   }, []);
 
@@ -164,6 +187,38 @@ export default function App() {
     if (isHydrated) saveDrills(drills);
   }, [isHydrated, drills]);
 
+  useEffect(() => {
+    if (isHydrated) saveNotes(notes);
+  }, [isHydrated, notes]);
+
+  // برگشت پایدار: اول لایه باز بسته می‌شود، بعد صفحه قبلی؛ در خانه دوبار برگشت خروج را می‌پرسد.
+  const uiStateRef = useRef({ currentTab, isQuickMenuOpen, isArcMenuOpen, isSettingsOpen, isProfileOpen, isSoundsOpen, isManualLogOpen, isBackupOpen, isAboutOpen, isNotesOpen, isResetConfirmOpen, isExitConfirmOpen });
+  useEffect(() => {
+    uiStateRef.current = { currentTab, isQuickMenuOpen, isArcMenuOpen, isSettingsOpen, isProfileOpen, isSoundsOpen, isManualLogOpen, isBackupOpen, isAboutOpen, isNotesOpen, isResetConfirmOpen, isExitConfirmOpen };
+  }, [currentTab, isQuickMenuOpen, isArcMenuOpen, isSettingsOpen, isProfileOpen, isSoundsOpen, isManualLogOpen, isBackupOpen, isAboutOpen, isNotesOpen, isResetConfirmOpen, isExitConfirmOpen]);
+  useEffect(() => {
+    window.history.replaceState({ konkurRoot: true }, '', window.location.href);
+    const onBack = () => {
+      window.history.pushState({ konkurRoot: true }, '', window.location.href);
+      const now = Date.now();
+      const isDoubleBack = now - lastBackPressRef.current < 1500;
+      lastBackPressRef.current = now;
+      const state = uiStateRef.current;
+      if (state.isQuickMenuOpen || state.isArcMenuOpen || state.isSettingsOpen || state.isProfileOpen || state.isSoundsOpen || state.isManualLogOpen || state.isBackupOpen || state.isAboutOpen || state.isNotesOpen) {
+        setIsQuickMenuOpen(false); setIsArcMenuOpen(false); setIsSettingsOpen(false); setIsProfileOpen(false); setIsSoundsOpen(false); setIsManualLogOpen(false); setIsBackupOpen(false); setIsAboutOpen(false); setIsNotesOpen(false); return;
+      }
+      if (state.isResetConfirmOpen || state.isExitConfirmOpen) return;
+      if (state.currentTab !== 'home') {
+        const previous = navigationStackRef.current.pop() ?? 'home';
+        setCurrentTab(previous); window.scrollTo({ top: 0, behavior: 'smooth' }); return;
+      }
+      if (isDoubleBack) setIsExitConfirmOpen(true);
+    };
+    window.addEventListener('popstate', onBack);
+    document.addEventListener('backbutton', onBack as EventListener);
+    return () => { window.removeEventListener('popstate', onBack); document.removeEventListener('backbutton', onBack as EventListener); };
+  }, []);
+
   // صدای محیط را با بسته شدن برنامه رها کن
   useEffect(() => () => soundEngine.stop(), []);
 
@@ -178,6 +233,24 @@ export default function App() {
   const todayTasks = useMemo(() => tasksForDay(tasks, todayJalaliKey()), [tasks]);
   const upcomingExam = useMemo(() => nextExam(exams), [exams]);
 
+  const enableNotifications = useCallback(async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') new Notification('اعلان‌های کنکور من فعال شد', { body: 'یادآوری‌های برنامه و آزمون‌ها را از دست نمی‌دهی.' });
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated || !profile.notificationsEnabled || typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return;
+    const pending = todayTasks.filter(t => !t.isCompleted);
+    if (pending.length > 0) {
+      const key = `konkur-notified-${todayJalaliKey()}-${pending.length}`;
+      if (localStorage.getItem(key) !== '1') {
+        new Notification('برنامه امروزت آماده است', { body: `${pending.length} فعالیت برای امروز باقی مانده.` });
+        localStorage.setItem(key, '1');
+      }
+    }
+  }, [isHydrated, profile.notificationsEnabled, todayTasks]);
+
   const notifications = useMemo<HeaderNotification[]>(() => {
     const items: HeaderNotification[] = [];
 
@@ -189,7 +262,8 @@ export default function App() {
         description: pending
           .slice(0, 3)
           .map((t) => `${t.startTime} · ${t.subjectName}`)
-          .join(' — '),
+          .join('، '),
+        targetTab: 'planner',
       });
     }
 
@@ -198,6 +272,7 @@ export default function App() {
         id: `exam-${upcomingExam.id}`,
         title: `آزمون نزدیک: ${upcomingExam.title}`,
         description: `تاریخ ${upcomingExam.dateJalali}`,
+        targetTab: 'exams',
       });
     }
 
@@ -206,6 +281,7 @@ export default function App() {
         id: 'daily-goal',
         title: 'هدف امروز کامل نشده',
         description: `${Math.max(0, profile.dailyGoalMinutes - stats.todayMinutes)} دقیقه تا هدف روزانه`,
+        targetTab: 'progress',
       });
     }
 
@@ -228,18 +304,34 @@ export default function App() {
       subjectName: string,
       durationMinutes: number,
       type: StudySession['type'],
+      extra: SessionExtra = {},
     ) => {
       if (durationMinutes <= 0) return;
+      // زمان واقعی جلسه: اگر مشخص نشده، جلسه همین الان تمام شده است
+      const endMin = extra.endTime ? timeToMinutes(extra.endTime) : currentTimeMinutes();
+      const startMin = extra.startTime
+        ? timeToMinutes(extra.startTime)
+        : Math.max(0, endMin - durationMinutes);
+      const finalEnd = extra.endTime
+        ? endMin
+        : extra.startTime
+          ? Math.min(24 * 60 - 1, startMin + durationMinutes)
+          : endMin;
       setSessions((prev) => [
         {
           id: uid('sess'),
           subjectId,
           subjectName,
           durationMinutes,
-          dateStr: todayJalaliKey(),
-          isoDate: toLocalIso(),
+          dateStr: extra.dateStr ?? todayJalaliKey(),
+          isoDate: extra.isoDate ?? toLocalIso(),
           timestamp: Date.now(),
           type,
+          activityType: extra.activityType ?? 'study',
+          startTime: minutesToTime(startMin),
+          endTime: minutesToTime(finalEnd),
+          questionCount: extra.questionCount && extra.questionCount > 0 ? extra.questionCount : undefined,
+          taskId: extra.taskId,
         },
         ...prev,
       ]);
@@ -247,19 +339,104 @@ export default function App() {
     [],
   );
 
-  const handleToggleTask = (taskId: string) =>
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t)),
-    );
+  /* ---------------------------------------------------------------- */
+  /* تیک «انجام شد» = ثبت یک مطالعه‌ی موفق در آمار                       */
+  /* دقیقه‌هایی که پیش‌تر با تایمر یا پومودورو ثبت شده دوباره حساب نمی‌شود */
+  /* ---------------------------------------------------------------- */
+  const handleToggleTask = useCallback(
+    (taskId: string) => {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+
+      if (!task.isCompleted) {
+        const remaining = Math.max(0, task.durationMinutes - (task.loggedMinutes ?? 0));
+        if (remaining > 0) {
+          // تیک‌زدن یعنی همان بازه‌ی برنامه‌ریزی‌شده انجام شده؛ اگر تاریخ ردیف
+          // گذشته یا امروز باشد، جلسه روی همان روز ثبت می‌شود
+          const taskIso = jalaliKeyToIso(task.dateStr);
+          const usePlanDay = !!taskIso && taskIso <= toLocalIso();
+          const planStart = timeToMinutes(task.startTime) + (task.loggedMinutes ?? 0);
+          recordSession(task.subjectId, task.subjectName, remaining, 'manual', {
+            activityType: task.activityType ?? 'study',
+            taskId: task.id,
+            ...(usePlanDay
+              ? {
+                  isoDate: taskIso!,
+                  dateStr: task.dateStr,
+                  startTime: minutesToTime(Math.min(planStart, 24 * 60 - 1)),
+                }
+              : {}),
+          });
+        }
+        celebrateAchievement();
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  isCompleted: true,
+                  loggedMinutes: Math.max(t.durationMinutes, t.loggedMinutes ?? 0),
+                }
+              : t,
+          ),
+        );
+        return;
+      }
+
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, isCompleted: false } : t)),
+      );
+    },
+    [tasks, recordSession],
+  );
+
+  /** ثبت دقیقه‌های تایمر یا پومودورو روی یک ردیف برنامه */
+  const handleLogTaskMinutes = useCallback(
+    (taskId: string, minutes: number, type: 'timer' | 'pomodoro') => {
+      if (minutes <= 0) return;
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+
+      recordSession(task.subjectId, task.subjectName, minutes, type, {
+        activityType: task.activityType ?? 'study',
+        taskId: task.id,
+      });
+      const reachesGoal = !task.isCompleted && (task.loggedMinutes ?? 0) + minutes >= task.durationMinutes;
+      if (reachesGoal) celebrateAchievement();
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== taskId) return t;
+          const logged = (t.loggedMinutes ?? 0) + minutes;
+          return {
+            ...t,
+            loggedMinutes: logged,
+            // به مدتی که خودش تعیین کرده رسید؟ خودکار انجام‌شده می‌شود
+            isCompleted: t.isCompleted || logged >= t.durationMinutes,
+          };
+        }),
+      );
+    },
+    [tasks, recordSession],
+  );
 
   const handleAddTask = (data: Omit<TaskItem, 'id'>) =>
     setTasks((prev) => [...prev, { ...data, id: uid('task') }]);
+
+  const handleAddTasks = (items: Omit<TaskItem, 'id'>[]) =>
+    setTasks((prev) => [...prev, ...items.map((item) => ({ ...item, id: uid('task') }))]);
 
   const handleDeleteTask = (taskId: string) =>
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
 
   const handleAddExam = (data: Omit<MockExam, 'id'>) =>
     setExams((prev) => [...prev, { ...data, id: uid('exam') }]);
+
+  const handleAddNote = (note: Omit<NoteItem, 'id'|'createdAt'|'updatedAt'>) => {
+    const now = new Date().toISOString();
+    setNotes(prev => [{ ...note, id: uid('note'), createdAt: now, updatedAt: now }, ...prev]);
+  };
+  const handleUpdateNote = (note: NoteItem) => setNotes(prev => prev.map(item => item.id === note.id ? note : item));
+  const handleDeleteNote = (id: string) => setNotes(prev => prev.filter(note => note.id !== id));
 
   const handleDeleteExam = (examId: string) =>
     setExams((prev) => prev.filter((e) => e.id !== examId));
@@ -279,6 +456,7 @@ export default function App() {
       timestamp: Date.now(),
     };
     setDrills((prev) => [drill, ...prev]);
+    celebrateAchievement();
 
     // تست‌زنی هم مطالعه است: در آمار ثبت می‌شود
     const minutes = Math.round(drill.durationSeconds / 60);
@@ -312,6 +490,7 @@ export default function App() {
     setSessions(data.sessions);
     setExams(data.exams);
     setDrills(data.drills);
+    setNotes(data.notes ?? []);
     setIsBackupOpen(false);
     setCurrentTab('home');
   };
@@ -325,6 +504,7 @@ export default function App() {
     setSessions([]);
     setExams([]);
     setDrills([]);
+    setNotes([]);
     setCurrentSound('none');
     setCurrentTab('home');
     setIsResetConfirmOpen(false);
@@ -336,12 +516,16 @@ export default function App() {
   };
 
   const goToTab = (tab: NavTab) => {
+    if (tab !== currentTab) {
+      if (tab === 'home') navigationStackRef.current = [];
+      else navigationStackRef.current.push(currentTab);
+    }
     setCurrentTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const makeBackup = (): AppBackup =>
-    buildBackup({ profile, subjects, tasks, sessions, exams, drills });
+    buildBackup({ profile, subjects, tasks, sessions, exams, drills, notes });
 
   /* ---------------------------------------------------------------- */
   /* دو دروازه‌ی اول: بارگذاری، سپس ورود اطلاعات کاربر                   */
@@ -372,37 +556,38 @@ export default function App() {
         notifications={notifications}
         onOpenMenu={() => setIsArcMenuOpen(true)}
         onOpenHome={() => goToTab('home')}
+        onNotificationClick={(item) => goToTab(item.targetTab)}
+        onEnableNotifications={enableNotifications}
       />
 
       {/* هدر و نوار پایین شناورند؛ فاصله‌ی امن بالا و پایین برای محتوا لازم است */}
       <main className="flex-1 safe-main overflow-y-auto no-scrollbar">
         {currentTab === 'home' && (
           <div className="flex flex-col animate-in fade-in duration-200">
+            <MotivationStrip />
             <CountdownDial
               daysRemaining={daysRemaining ?? 0}
               progressPercent={progressPercent}
               examName={profile.examName}
               dailyGoalMinutes={profile.dailyGoalMinutes}
-              countdownStyle={profile.countdownStyle}
+              todayStudyMinutes={stats.todayMinutes}
+              streakDays={stats.streak}
+              goalPct={stats.goalPct}
+              onStatCardClick={(card) => {
+                if (card === 'goal') setIsSettingsOpen(true);
+                else goToTab('progress');
+              }}
               onStartFocus={() => goToTab('focus')}
               onOpenDatePicker={() => setIsSettingsOpen(true)}
             />
 
-            <StatCards
-              todayStudyMinutes={stats.todayMinutes}
-              dailyGoalMinutes={profile.dailyGoalMinutes}
-              streakDays={stats.streak}
-              goalPct={stats.goalPct}
-              onCardClick={(card) => {
-                if (card === 'goal') setIsSettingsOpen(true);
-                else goToTab('progress');
-              }}
-            />
+            <HomeUpdates />
 
             <UpcomingExamCard exam={upcomingExam} onViewAllExams={() => goToTab('exams')} />
 
             <HomeTimeline
               tasks={todayTasks}
+              subjects={subjects}
               onToggleTask={handleToggleTask}
               onAddTask={() => goToTab('planner')}
               onViewAllPlanner={() => goToTab('planner')}
@@ -411,15 +596,25 @@ export default function App() {
           </div>
         )}
 
+        {currentTab === 'flashcards' && (
+          <div className="animate-in fade-in duration-200">
+            <FlashcardsView onClose={() => goToTab('home')} />
+          </div>
+        )}
+
         {currentTab === 'planner' && (
           <div className="animate-in fade-in duration-200">
-            <PlannerView
+            <CalendarView
               tasks={tasks}
               subjects={subjects}
-              subjectStats={stats.subjects}
+              major={profile.major}
               onToggleTask={handleToggleTask}
               onAddTask={handleAddTask}
               onDeleteTask={handleDeleteTask}
+              onStartFocus={handleStartFocusSubject}
+              onOpenSchedules={() => goToTab('schedule')}
+              autoOpenAdd={autoOpenAddTask}
+              onAutoOpenAddHandled={() => setAutoOpenAddTask(false)}
             />
           </div>
         )}
@@ -440,12 +635,54 @@ export default function App() {
           </div>
         )}
 
+        {currentTab === 'schedule' && (
+          <div className="animate-in fade-in duration-200">
+            <StudyScheduleView
+              subjects={subjects}
+              profile={profile}
+              onAddTasks={handleAddTasks}
+              onUpdateProfile={handleSaveProfile}
+              onOpenCalendar={() => goToTab('planner')}
+              onClose={() => goToTab('home')}
+            />
+          </div>
+        )}
+
+        {currentTab === 'advisors' && (
+          <div className="animate-in fade-in duration-200">
+            <AdvisorsView onClose={() => goToTab('home')} />
+          </div>
+        )}
+
+        {currentTab === 'studyHall' && (
+          <div className="animate-in fade-in duration-200">
+            <StudyHallView
+              subjects={subjects}
+              dailyGoalMinutes={profile.dailyGoalMinutes}
+              todayMinutes={stats.todayMinutes}
+              streak={stats.streak}
+              onRecordStudy={(id, name, minutes, mode) =>
+                recordSession(id, name, minutes, mode)
+              }
+            />
+          </div>
+        )}
+
+        {currentTab === 'report' && (
+          <div className="animate-in fade-in duration-200">
+            <ReportCardView drills={drills} subjects={subjects} />
+          </div>
+        )}
+
         {currentTab === 'progress' && (
           <div className="animate-in fade-in duration-200">
             <ProgressView
               stats={stats}
               drillStats={drillStats}
               drills={drills}
+              sessions={sessions}
+              tasks={tasks}
+              subjects={subjects}
               profile={profile}
               onStartFocus={() => goToTab('focus')}
             />
@@ -458,7 +695,15 @@ export default function App() {
               exams={exams}
               onAddExam={handleAddExam}
               onDeleteExam={handleDeleteExam}
+              autoOpenAdd={autoOpenAddExam}
+              onAutoOpenAddHandled={() => setAutoOpenAddExam(false)}
             />
+          </div>
+        )}
+
+        {isNotesOpen && (
+          <div className="animate-in fade-in duration-200">
+            <NotesView notes={notes} onAdd={handleAddNote} onUpdate={handleUpdateNote} onDelete={handleDeleteNote} onClose={() => setIsNotesOpen(false)} />
           </div>
         )}
 
@@ -477,17 +722,24 @@ export default function App() {
       <Navbar
         currentTab={currentTab}
         onSelectTab={goToTab}
-        onOpenQuickAction={() => setIsQuickActionOpen(true)}
+        onQuickAdd={() => setIsQuickMenuOpen(true)}
       />
 
-      {/* منوی سریع - عملیات سریع */}
+      {/* منوی دکمه‌ی + نوار پایین */}
       <QuickActionMenu
-        isOpen={isQuickActionOpen}
-        onClose={() => setIsQuickActionOpen(false)}
-        onStartFocus={() => goToTab('focus')}
+        isOpen={isQuickMenuOpen}
+        onClose={() => setIsQuickMenuOpen(false)}
+        onAddTask={() => {
+          goToTab('planner');
+          setAutoOpenAddTask(true);
+        }}
         onStartDrill={() => goToTab('drill')}
-        onAddTask={() => goToTab('planner')}
-        onManualLog={() => setIsManualLogOpen(true)}
+        onAddExam={() => {
+          goToTab('exams');
+          setAutoOpenAddExam(true);
+        }}
+        onStartFocus={() => goToTab('focus')}
+        onOpenNotes={() => setIsNotesOpen(true)}
       />
 
       {/* تنها منوی برنامه — با آیکن منو در هدر باز می‌شود */}
@@ -535,7 +787,7 @@ export default function App() {
         isOpen={isManualLogOpen}
         onClose={() => setIsManualLogOpen(false)}
         subjects={subjects}
-        onLogStudy={(id, name, minutes) => recordSession(id, name, minutes, 'manual')}
+        onLogStudy={(id, name, minutes, extra) => recordSession(id, name, minutes, 'manual', extra)}
       />
 
       <BackupModal
@@ -546,6 +798,20 @@ export default function App() {
       />
 
       <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
+
+      <ConfirmDialog
+        isOpen={isExitConfirmOpen}
+        title="می‌خواهی از برنامه خارج شوی؟"
+        message="برای خروج از برنامه تأیید کن."
+        confirmLabel="خروج"
+        cancelLabel="بمان"
+        onConfirm={() => {
+          setIsExitConfirmOpen(false);
+          window.close();
+          setTimeout(() => window.history.back(), 80);
+        }}
+        onCancel={() => setIsExitConfirmOpen(false)}
+      />
 
       <ConfirmDialog
         isOpen={isResetConfirmOpen}

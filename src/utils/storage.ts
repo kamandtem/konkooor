@@ -2,6 +2,7 @@ import {
   AppBackup,
   MajorType,
   MockExam,
+  NoteItem,
   StudySession,
   SubjectItem,
   TaskItem,
@@ -11,7 +12,7 @@ import {
 import { normalizeJalaliKey, normalizeTime, todayJalaliKey, toLocalIso } from './jalali';
 
 export const SCHEMA_VERSION = 2;
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.6.3';
 
 const STORAGE_KEYS = {
   PROFILE: 'konkur_profile_v2',
@@ -20,6 +21,7 @@ const STORAGE_KEYS = {
   SESSIONS: 'konkur_sessions_v2',
   EXAMS: 'konkur_exams_v2',
   DRILLS: 'konkur_drills_v2',
+  NOTES: 'konkur_notes_v1',
 } as const;
 
 /** کلیدهای نسخه‌ی قبلی که داده‌ی نمونه در آن‌ها ریخته می‌شد */
@@ -115,7 +117,6 @@ export const EMPTY_PROFILE: UserProfile = {
   pomodoroBreakMinutes: 5,
   notificationsEnabled: true,
   avatarDataUrl: '',
-  countdownStyle: 'gradient-ring',
   isOnboarded: false,
 };
 
@@ -170,11 +171,6 @@ function sanitizeAvatar(raw: unknown): string {
   return value;
 }
 
-function validateCountdownStyle(raw: unknown): any {
-  const valid = ['gradient-ring', 'liquid-ring', 'digital-earth', 'mountain-progress', 'vertical-gauge'];
-  return typeof raw === 'string' && valid.includes(raw) ? raw : 'gradient-ring';
-}
-
 export function sanitizeProfile(raw: unknown): UserProfile | null {
   if (!isObj(raw)) return null;
   const major = ALL_MAJORS.includes(raw.major as MajorType)
@@ -191,7 +187,6 @@ export function sanitizeProfile(raw: unknown): UserProfile | null {
     pomodoroBreakMinutes: num(raw.pomodoroBreakMinutes, 5, 1, 60),
     notificationsEnabled: raw.notificationsEnabled !== false,
     avatarDataUrl: sanitizeAvatar(raw.avatarDataUrl),
-    countdownStyle: validateCountdownStyle(raw.countdownStyle),
     isOnboarded: raw.isOnboarded === true,
   };
 }
@@ -218,18 +213,43 @@ function sanitizeTasks(raw: unknown): TaskItem[] {
         id: str(t.id) || `task-${Date.now()}-${i}`,
         subjectId: str(t.subjectId),
         subjectName: str(t.subjectName).trim().slice(0, 40) || 'مطالعه آزاد',
+        activityType: (['study', 'class', 'other'].includes(str(t.activityType)) ? str(t.activityType) : 'study') as TaskItem['activityType'],
+        chapter: str(t.chapter).trim().slice(0, 100) || undefined,
         dateStr,
         startTime: normalizeTime(str(t.startTime)),
         durationMinutes: num(t.durationMinutes, 45, 5, 600),
         isCompleted: t.isCompleted === true,
         notes: str(t.notes).slice(0, 200) || undefined,
+        resource: str(t.resource).trim().slice(0, 100) || undefined,
+        reportType: str(t.reportType).trim().slice(0, 60) || undefined,
+        questionType: (['test', 'written'].includes(str(t.questionType)) ? str(t.questionType) : undefined) as TaskItem['questionType'],
+        questionCount: t.questionCount == null ? undefined : num(t.questionCount, 0, 0, 1000),
+        color: /^#[0-9a-fA-F]{6}$/.test(str(t.color)) ? str(t.color) : undefined,
+        loggedMinutes: num(t.loggedMinutes, 0, 0, 1440),
       };
     });
 }
 
+function sanitizeNotes(raw: unknown): NoteItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isObj).map((n, i) => ({
+    id: str(n.id) || `note-${Date.now()}-${i}`,
+    title: str(n.title).trim().slice(0, 100) || 'یادداشت بدون عنوان',
+    content: str(n.content).slice(0, 20000),
+    color: ['peach','lavender','lilac','butter','sky','rose'].includes(str(n.color)) ? str(n.color) : 'peach',
+    createdAt: str(n.createdAt) || new Date().toISOString(),
+    updatedAt: str(n.updatedAt) || str(n.createdAt) || new Date().toISOString(),
+  }));
+}
+
 function sanitizeSessions(raw: unknown): StudySession[] {
   if (!Array.isArray(raw)) return [];
-  const allowed = ['pomodoro', 'timer', 'manual', 'drill'];
+  const allowed = ['pomodoro', 'timer', 'manual', 'drill', 'virtual', 'physical'];
+  const kinds = ['study', 'class', 'other'];
+  const validTime = (v: unknown): string | undefined => {
+    const t = str(v).trim();
+    return /^\d{1,2}:\d{2}$/.test(t) ? normalizeTime(t) : undefined;
+  };
   return raw.filter(isObj).map((s, i) => {
     const iso = sanitizeIso(s.isoDate) || toLocalIso();
     return {
@@ -241,6 +261,13 @@ function sanitizeSessions(raw: unknown): StudySession[] {
       dateStr: normalizeJalaliKey(str(s.dateStr)) ?? todayJalaliKey(),
       timestamp: num(s.timestamp, Date.now(), 0, Number.MAX_SAFE_INTEGER),
       type: (allowed.includes(str(s.type)) ? str(s.type) : 'manual') as StudySession['type'],
+      activityType: kinds.includes(str(s.activityType))
+        ? (str(s.activityType) as StudySession['activityType'])
+        : undefined,
+      startTime: validTime(s.startTime),
+      endTime: validTime(s.endTime),
+      questionCount: s.questionCount != null ? num(s.questionCount, 0, 0, 2000) || undefined : undefined,
+      taskId: str(s.taskId) || undefined,
     };
   });
 }
@@ -270,7 +297,7 @@ function sanitizeDrills(raw: unknown): TestDrill[] {
   return raw.filter(isObj).map((d, i) => {
     const total = num(d.totalQuestions, 0, 0, 500);
     const correct = num(d.correct, 0, 0, total);
-    const wrong = num(d.wrong, 0, 0, total);
+    const wrong = num(d.wrong, 0, 0, Math.max(0, total - correct));
     const blank = Math.max(0, total - correct - wrong);
     return {
       id: str(d.id) || `drill-${Date.now()}-${i}`,
@@ -328,6 +355,10 @@ export function loadDrills(): TestDrill[] {
   return sanitizeDrills(readJson(STORAGE_KEYS.DRILLS));
 }
 
+export function loadNotes(): NoteItem[] {
+  return sanitizeNotes(readJson(STORAGE_KEYS.NOTES));
+}
+
 /* ------------------------------------------------------------------ */
 /* نوشتن                                                               */
 /* ------------------------------------------------------------------ */
@@ -338,6 +369,7 @@ export const saveTasks = (v: TaskItem[]) => writeJson(STORAGE_KEYS.TASKS, v);
 export const saveSessions = (v: StudySession[]) => writeJson(STORAGE_KEYS.SESSIONS, v);
 export const saveExams = (v: MockExam[]) => writeJson(STORAGE_KEYS.EXAMS, v);
 export const saveDrills = (v: TestDrill[]) => writeJson(STORAGE_KEYS.DRILLS, v);
+export const saveNotes = (v: NoteItem[]) => writeJson(STORAGE_KEYS.NOTES, v);
 
 /** همه‌ی داده‌های کاربر را پاک می‌کند و برنامه به حالت روز اول برمی‌گردد */
 export function clearAllData(): void {
@@ -361,6 +393,7 @@ export function buildBackup(data: {
   sessions: StudySession[];
   exams: MockExam[];
   drills: TestDrill[];
+  notes: NoteItem[];
 }): AppBackup {
   return {
     app: 'konkur-man',
@@ -377,6 +410,7 @@ export interface ParsedBackup {
   sessions: StudySession[];
   exams: MockExam[];
   drills: TestDrill[];
+  notes: NoteItem[];
 }
 
 /** فایل پشتیبان کاربر را می‌خواند. در صورت نامعتبر بودن، خطای فارسی می‌دهد */
@@ -402,5 +436,6 @@ export function parseBackup(rawText: string): ParsedBackup {
     sessions: sanitizeSessions(parsed.sessions),
     exams: sanitizeExams(parsed.exams),
     drills: sanitizeDrills(parsed.drills),
+    notes: sanitizeNotes(parsed.notes),
   };
 }
